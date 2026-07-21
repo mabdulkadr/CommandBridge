@@ -1,46 +1,33 @@
-<#
-.TITLE
-    Remote Script Executor GUI
-
+<#!
 .SYNOPSIS
-    A graphical interface for executing PowerShell commands across multiple remote Windows devices.
+    Remote Script Executor GUI - Execute PowerShell commands across multiple remote Windows devices.
 
 .DESCRIPTION
-    This script provides a WPF-based graphical user interface to execute custom PowerShell 
-    commands across multiple remote targets concurrently. It features Ping and WSMan pre-checks, 
+    This script provides a WPF-based graphical user interface to execute custom PowerShell
+    commands across multiple remote targets concurrently. It features Ping and WSMan pre-checks,
     alternative credentials support, real-time status tracking, and output logging.
 
-.TAGS
-    GUI,Remote-Execution,Administration,WPF
-
-.PLATFORM
-    Windows
-
-.PERMISSIONS
     Requires Administrator privileges or appropriate WinRM permissions on target devices.
 
-.AUTHOR
-    Mohammad Omar
-
-.VERSION
-    2.0
-
-.CHANGELOG
-    2.0 - Rebuilt UI with enhanced styling, and optimized concurrency.
-    1.5 - Added custom branding and hyperlink support.
-    1.0 - Initial release.
-
-.LASTUPDATE
-    2026-05-18
-
-.EXAMPLE
-    .\CommandBridgeGUI.ps1
-    Launches the GUI for interactive remote command execution.
-
-.NOTES
+    Notes:
     - Script automatically restarts in STA mode if required for WPF.
     - Supports importing target devices via CSV.
     - Logs and outputs are saved to C:\ProgramData\CommandBridge\Logs\
+
+.EXAMPLE
+    .\CommandBridge.ps1
+    Launches the GUI for interactive remote command execution.
+
+.NOTES
+    Author      : Mohammad Abdelkader Omar
+    Website     : https://momar.tech
+    LinkedIn    : https://www.linkedin.com/in/mabdulkadr/
+    Date        : 2026-05-18
+    Version     : 2.0
+    Changelog   :
+                 2.0 - Rebuilt UI with enhanced styling, and optimized concurrency.
+                 1.5 - Added custom branding and hyperlink support.
+                 1.0 - Initial release.
 #>
 
 # Ensure script runs in STA mode required for WPF
@@ -50,13 +37,13 @@ if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
 }
 
 # Load essential GUI assemblies
-#region [Assemblies] ==========================================
+#region ======================== ASSEMBLIES ============================
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase | Out-Null
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 #endregion
 
 # Initialize system variables and app state
-#region [State Management] ==========================================
+#region ======================== STATE MANAGEMENT ============================
 $Script:AppState = @{
     AppTitle        = 'Command Bridge'
     AppVersion      = 'v2.0'
@@ -104,7 +91,7 @@ $Script:AppState.LogFile = Join-Path $Script:AppState.Paths.Logs ("CommandBridge
 #endregion
 
 # UI Helpers & Logging
-#region [UI Helpers & Logging] ==========================================
+#region ======================== UI HELPERS & LOGGING ============================
 
 # Convert text to WPF Brush
 function New-Brush {
@@ -249,7 +236,7 @@ function Set-Progress {
 #endregion
 
 # Data Model & Grid
-#region [Data Model & Grid] ==========================================
+#region ======================== DATA MODEL & GRID ============================
 
 # Create new device row with Index
 function New-DeviceRow([int]$Index, [string]$Device) {
@@ -282,7 +269,7 @@ function Update-DeviceRow {
 #endregion
 
 # Credential Dialog
-#region [Credential Dialog] ==========================================
+#region ======================== CREDENTIAL DIALOG ============================
 function Show-CredentialDialog {
   param(
     [string]$Title = 'Alternate Credentials',
@@ -367,7 +354,7 @@ function Show-CredentialDialog {
 #endregion
 
 # Runspace Pool & Worker
-#region [Runspace Pool & Worker] ==========================================
+#region ======================== RUNSPACE POOL & WORKER ============================
 $iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
 $Script:AppState.Pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $Script:AppState.PoolMax, $iss, $Host)
 $Script:AppState.Pool.ApartmentState = [System.Threading.ApartmentState]::STA
@@ -384,6 +371,7 @@ param(
   [pscredential]$Cred
 )
 
+# Packages a remote execution result into a JSON string for the calling runspace.
 function Out-Result($state,$msg,$out){
   [pscustomobject]@{
     Computer=$Computer
@@ -480,7 +468,7 @@ function Start-RemoteTask {
 #endregion
 
 # Main Window XAML
-#region [XAML - Main Window] ==========================================
+#region ======================== XAML - MAIN WINDOW ============================
 $Xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -830,13 +818,13 @@ $Xaml = @"
 #endregion
 
 # Load XAML
-#region [XAML Load] ==========================================
+#region ======================== XAML LOAD ============================
 try { $Script:AppState.Window = [Windows.Markup.XamlReader]::Parse($Xaml) }
 catch { Write-Host "FAILED to load XAML: $($_.Exception.Message)" -ForegroundColor Red; throw }
 #endregion
 
 # Bind Controls
-#region [Bind Controls] ==========================================
+#region ======================== BIND CONTROLS ============================
 $controls = @(
   'txtLogPath', 'txtSingleTarget', 'btnAddTarget', 'btnPasteTargets', 'lstTargets', 'btnClearTargets', 'btnImportCsv', 'btnOpenLogs', 'txtCustom',
   'chkPing', 'chkWsman', 'chkAltCred', 'txtCredStatus', 'txtMaxConcurrent', 'chkSaveOutput',
@@ -867,7 +855,7 @@ $Script:AppState.Controls['dgStatus'].ItemsSource = $Script:AppState.TargetRows
 #endregion
 
 # Alt Cred Helpers
-#region [Alt Cred Helpers] ==========================================
+#region ======================== ALT CRED HELPERS ============================
 function Set-AltCredStatus {
   param([pscredential]$Cred)
 
@@ -885,7 +873,7 @@ function Set-AltCredStatus {
 #endregion
 
 # Target Parsing
-#region [Target Parsing] ==========================================
+#region ======================== TARGET PARSING ============================
 function Add-TargetToList([string]$Device) {
   $clean = $Device.Trim()
   if ([string]::IsNullOrWhiteSpace($clean)) { return }
@@ -902,6 +890,7 @@ function Add-TargetToList([string]$Device) {
   }
 }
 
+# Returns only the checked/selected device names from the input target list.
 function Get-SelectedTargets {
   $list = New-Object System.Collections.ArrayList
   foreach ($item in $Script:AppState.InputTargets) {
@@ -914,7 +903,7 @@ function Get-SelectedTargets {
 #endregion
 
 # Input Mode Control
-#region [Input Mode Control] ==========================================
+#region ======================== INPUT MODE CONTROL ============================
 function Refresh-InputMode {
   $isRunning = $Script:AppState.IsRunning
   $enabled = -not $isRunning
@@ -935,7 +924,7 @@ function Refresh-InputMode {
 #endregion
 
 # Timers
-#region [Timers - Log Flush & Job Poll] ==========================================
+#region ======================== TIMERS (LOG FLUSH & JOB POLL) ============================
 $Script:AppState.LogFlushTimer = New-Object Windows.Threading.DispatcherTimer
 $Script:AppState.LogFlushTimer.Interval = [TimeSpan]::FromMilliseconds(150)
 $Script:AppState.LogFlushTimer.Add_Tick({ try { Flush-UiLog } catch {} })
@@ -945,7 +934,7 @@ $Script:AppState.UiTimer.Interval = [TimeSpan]::FromMilliseconds(250)
 #endregion
 
 # Imports & Exports
-#region [Imports & Exports] ==========================================
+#region ======================== IMPORTS & EXPORTS ============================
 $Script:AppState.Controls['btnAddTarget'].Add_Click({
   $txt = $Script:AppState.Controls['txtSingleTarget'].Text
   Add-TargetToList -Device $txt
@@ -1033,7 +1022,7 @@ $Script:AppState.Controls['btnExportCsv'].Add_Click({
 #endregion
 
 # Alt Cred Toggle
-#region [Alt Cred Toggle] ==========================================
+#region ======================== ALT CRED TOGGLE ============================
 $Script:AppState.Controls['chkAltCred'].Add_Click({
   try {
     if ($Script:AppState.IsRunning) { Enqueue-UiLog "Cannot change credentials while running." "WARN"; $Script:AppState.Controls['chkAltCred'].IsChecked = $true; return }
@@ -1062,7 +1051,7 @@ $Script:AppState.Controls['chkAltCred'].Add_Click({
 #endregion
 
 # Queue & Concurrency
-#region [Queue & Concurrency] ==========================================
+#region ======================== QUEUE & CONCURRENCY ============================
 function Get-MaxConcurrentFromUi {
   $v = 8
   try { $v = [int]$Script:AppState.Controls['txtMaxConcurrent'].Text } catch { $v = 8 }
@@ -1105,7 +1094,7 @@ function Start-NextQueuedTasks {
 #endregion
 
 # Run Finalizer
-#region [Run Finalizer] ==========================================
+#region ======================== RUN FINALIZER ============================
 function Complete-Run {
   param(
     [string]$RuntimeText,
@@ -1125,7 +1114,7 @@ function Complete-Run {
 #endregion
 
 # Job Poller
-#region [Job Poller] ==========================================
+#region ======================== JOB POLLER ============================
 $Script:AppState.UiTimer.Add_Tick({
   try {
     # Recalculate DoneCount directly from state to guarantee sync
@@ -1223,7 +1212,7 @@ $Script:AppState.UiTimer.Add_Tick({
 #endregion
 
 # Run & Cancel
-#region [Run & Cancel] ==========================================
+#region ======================== RUN & CANCEL ============================
 function Reset-RunState {
   $Script:AppState.CancelRequested = $false
   $Script:AppState.TargetRows.Clear()
@@ -1337,7 +1326,7 @@ $Script:AppState.Controls['btnCancel'].Add_Click({
 #endregion
 
 # Output Buttons
-#region [Output Buttons] ==========================================
+#region ======================== OUTPUT BUTTONS ============================
 $Script:AppState.Controls['btnClearOutput'].Add_Click({ try { $Script:AppState.Controls['rtb'].Document.Blocks.Clear() } catch {} })
 
 $Script:AppState.Controls['btnCopyOutput'].Add_Click({
@@ -1352,7 +1341,7 @@ $Script:AppState.Controls['btnCopyOutput'].Add_Click({
 #endregion
 
 # Window Events & Cleanup
-#region [Window Events & Cleanup] ==========================================
+#region ======================== WINDOW EVENTS & CLEANUP ============================
 $Script:AppState.Window.Add_Loaded({
   Enqueue-UiLog "Ready." "INFO"
   $Script:AppState.Controls['txtRuntime'].Text = 'Idle'
@@ -1376,6 +1365,6 @@ $Script:AppState.Window.Add_Closing({
 #endregion
 
 # Run UI
-#region [Run UI] ==========================================
+#region ======================== RUN UI ============================
 [void]$Script:AppState.Window.ShowDialog()
 #endregion

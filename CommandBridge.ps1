@@ -368,7 +368,8 @@ param(
   [bool]$DoPing,
   [bool]$DoWsman,
   [bool]$UseCred,
-  [pscredential]$Cred
+  [pscredential]$Cred,
+  [int]$TimeoutSec = 120
 )
 
 # Packages a remote execution result into a JSON string for the calling runspace.
@@ -386,15 +387,25 @@ try {
 
   if($DoPing){
     $ok = $false
-    try { $ok = Test-Connection -ComputerName $Computer -Count 1 -Quiet -ErrorAction SilentlyContinue } catch { $ok = $false }
+    try {
+      $ping = New-Object System.Net.NetworkInformation.Ping
+      $reply = $ping.Send($Computer, 4000)
+      $ok = ($reply.Status -eq 'Success')
+      $ping.Dispose()
+    } catch { $ok = $false }
     if(-not $ok){ return (Out-Result 'Failed' 'Ping failed.' $null) }
   }
 
   if($DoWsman){
     $ok2 = $false
     try {
-      if($UseCred -and $Cred){ Test-WSMan -ComputerName $Computer -Credential $Cred -Authentication Default -ErrorAction Stop | Out-Null }
-      else { Test-WSMan -ComputerName $Computer -ErrorAction Stop | Out-Null }
+      $wso = New-PSSessionOption -OperationTimeout 15000 -CancelTimeout 5000 -OpenTimeout 15000
+      if($UseCred -and $Cred){
+        $wsSess = New-PSSession -ComputerName $Computer -Credential $Cred -SessionOption $wso -ErrorAction Stop
+      } else {
+        $wsSess = New-PSSession -ComputerName $Computer -SessionOption $wso -ErrorAction Stop
+      }
+      Remove-PSSession $wsSess -ErrorAction SilentlyContinue
       $ok2 = $true
     } catch { $ok2 = $false }
     if(-not $ok2){ return (Out-Result 'Failed' 'WSMan test failed (WinRM not reachable).' $null) }
@@ -409,10 +420,14 @@ try {
     return (Out-Result 'Failed' 'No command provided.' $null)
   }
 
+  $opTimeout = $TimeoutSec * 1000
+  if ($opTimeout -lt 10000) { $opTimeout = 10000 }
+  $sessionOption = New-PSSessionOption -OperationTimeout $opTimeout -CancelTimeout 10000 -IdleTimeout ($opTimeout * 2) -OpenTimeout 30000
   $invokeParams = @{
-    ComputerName = $Computer
-    ScriptBlock  = $sb
-    ErrorAction  = 'Stop'
+    ComputerName  = $Computer
+    ScriptBlock   = $sb
+    SessionOption = $sessionOption
+    ErrorAction   = 'Stop'
   }
   if($UseCred -and $Cred){ $invokeParams.Credential = $Cred }
 
@@ -436,7 +451,8 @@ function Start-RemoteTask {
     [bool]$DoPing,
     [bool]$DoWsman,
     [bool]$UseCred,
-    [pscredential]$Cred
+    [pscredential]$Cred,
+    [int]$TimeoutSec = 120
   )
 
   try {
@@ -449,7 +465,8 @@ function Start-RemoteTask {
       AddArgument([bool]$DoPing).
       AddArgument([bool]$DoWsman).
       AddArgument([bool]$UseCred).
-      AddArgument($Cred)
+      AddArgument($Cred).
+      AddArgument([int]$TimeoutSec)
 
     $async = $ps.BeginInvoke()
 
@@ -659,6 +676,8 @@ $Xaml = @"
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="8"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="8"/>
+                    <RowDefinition Height="Auto"/>
                   </Grid.RowDefinitions>
                   <TextBlock Grid.Row="0" Grid.Column="0" Text="Ping Check" Style="{StaticResource SidebarText}" VerticalAlignment="Center"/>
                   <CheckBox Name="chkPing" Grid.Row="0" Grid.Column="1" IsChecked="True" VerticalAlignment="Center"/>
@@ -670,6 +689,8 @@ $Xaml = @"
                   <CheckBox Name="chkSaveOutput" Grid.Row="6" Grid.Column="1" IsChecked="False" VerticalAlignment="Center"/>
                   <TextBlock Grid.Row="8" Grid.Column="0" Text="Max Threads" Style="{StaticResource SidebarText}" VerticalAlignment="Center"/>
                   <TextBox Name="txtMaxConcurrent" Grid.Row="8" Grid.Column="1" Text="8" Width="40" TextAlignment="Center" Padding="2"/>
+                  <TextBlock Grid.Row="10" Grid.Column="0" Text="Timeout (sec)" Style="{StaticResource SidebarText}" VerticalAlignment="Center"/>
+                  <TextBox Name="txtTimeout" Grid.Row="10" Grid.Column="1" Text="120" Width="40" TextAlignment="Center" Padding="2"/>
                 </Grid>
               </StackPanel>
             </Border>
@@ -827,7 +848,7 @@ catch { Write-Host "FAILED to load XAML: $($_.Exception.Message)" -ForegroundCol
 #region ======================== BIND CONTROLS ============================
 $controls = @(
   'txtLogPath', 'txtSingleTarget', 'btnAddTarget', 'btnPasteTargets', 'lstTargets', 'btnClearTargets', 'btnImportCsv', 'btnOpenLogs', 'txtCustom',
-  'chkPing', 'chkWsman', 'chkAltCred', 'txtCredStatus', 'txtMaxConcurrent', 'chkSaveOutput',
+  'chkPing', 'chkWsman', 'chkAltCred', 'txtCredStatus', 'txtMaxConcurrent', 'chkSaveOutput', 'txtTimeout',
   'dgStatus', 'btnRun', 'btnCancel', 'txtRuntime', 'btnCopyOutput', 'btnClearOutput', 'rtb', 'pb',
   'FooterLink', 'btnExportCsv'
 )
@@ -909,7 +930,7 @@ function Refresh-InputMode {
   $enabled = -not $isRunning
   $opacity = if ($isRunning) { 0.55 } else { 1.0 }
 
-  $controls = @('txtCustom', 'txtSingleTarget', 'btnAddTarget', 'btnPasteTargets', 'lstTargets', 'btnImportCsv', 'btnClearTargets', 'chkPing', 'chkWsman', 'chkAltCred', 'txtMaxConcurrent')
+  $controls = @('txtCustom', 'txtSingleTarget', 'btnAddTarget', 'btnPasteTargets', 'lstTargets', 'btnImportCsv', 'btnClearTargets', 'chkPing', 'chkWsman', 'chkAltCred', 'txtMaxConcurrent', 'txtTimeout')
   
   foreach ($c in $controls) {
     if ($Script:AppState.Controls[$c]) {
@@ -1068,7 +1089,8 @@ function Start-NextQueuedTasks {
     [bool]$DoPing,
     [bool]$DoWsman,
     [bool]$UseCred,
-    [pscredential]$Cred
+    [pscredential]$Cred,
+    [int]$TimeoutSec = 120
   )
 
   if ($Script:AppState.CancelRequested) { return }
@@ -1084,7 +1106,7 @@ function Start-NextQueuedTasks {
     Update-DeviceRow -RowMap $Script:AppState.RowMap -Device $dev -State 'Running' -LastMessage 'Starting...'
 
     $started = Start-RemoteTask -Computer $dev -CustomText $Custom `
-      -DoPing $DoPing -DoWsman $DoWsman -UseCred $UseCred -Cred $Cred
+      -DoPing $DoPing -DoWsman $DoWsman -UseCred $UseCred -Cred $Cred -TimeoutSec $TimeoutSec
 
     if (-not $started) {
       Update-DeviceRow -RowMap $Script:AppState.RowMap -Device $dev -State 'Failed' -LastMessage 'Failed to initialize session.'
@@ -1141,7 +1163,7 @@ $Script:AppState.UiTimer.Add_Tick({
 
       # 2-Minute Force Timeout
       if (-not $isComp -and (($j.Started).AddMinutes(2) -lt (Get-Date))) {
-        try { $j.PS.Stop(); $j.PS.Dispose() } catch {}
+        try { $j.PS.BeginStop($null, $null) } catch {}
         Update-DeviceRow -RowMap $Script:AppState.RowMap -Device $j.Computer -State 'Failed' -LastMessage 'Timeout after 2 minutes.'
         Enqueue-UiLog "Timeout after 2 minutes." "ERROR" $j.Computer
         Enqueue-UiLog "==================================================" "DIVIDER"
@@ -1156,7 +1178,7 @@ $Script:AppState.UiTimer.Add_Tick({
           $json = ($res | Out-String).Trim()
         } catch { $json = $null }
 
-        try { $j.PS.Dispose() } catch {}
+        try { $j.PS.BeginStop($null, $null) } catch {}
         [void]$done.Add($j)
 
         if (-not $json) {
@@ -1205,7 +1227,8 @@ $Script:AppState.UiTimer.Add_Tick({
 
     Start-NextQueuedTasks -Custom $Script:AppState.Controls['txtCustom'].Text `
       -DoPing ([bool]$Script:AppState.Controls['chkPing'].IsChecked) -DoWsman ([bool]$Script:AppState.Controls['chkWsman'].IsChecked) `
-      -UseCred ([bool]$Script:AppState.Controls['chkAltCred'].IsChecked) -Cred $Script:AppState.AltCredential
+      -UseCred ([bool]$Script:AppState.Controls['chkAltCred'].IsChecked) -Cred $Script:AppState.AltCredential `
+      -TimeoutSec ([int]$Script:AppState.Controls['txtTimeout'].Text)
   }
   catch { Enqueue-UiLog ("Polling error: " + $_.Exception.Message) "ERROR" }
 })
@@ -1245,6 +1268,12 @@ $Script:AppState.Controls['btnRun'].Add_Click({
     }
 
     $Script:AppState.MaxConcurrent = Get-MaxConcurrentFromUi
+    
+    $timeout = 120
+    try { $timeout = [int]$Script:AppState.Controls['txtTimeout'].Text } catch { $timeout = 120 }
+    if ($timeout -lt 10) { $timeout = 10 }
+    $Script:AppState.Controls['txtTimeout'].Text = [string]$timeout
+
     Reset-RunState
 
     $doPing  = [bool]$Script:AppState.Controls['chkPing'].IsChecked
@@ -1278,11 +1307,11 @@ $Script:AppState.Controls['btnRun'].Add_Click({
     Set-Progress -Value 0 -Max $Script:AppState.TotalTargets
 
     $altUser = if ($useCred -and $cred) { $cred.UserName } else { 'Current user' }
-    Enqueue-UiLog ("Run started. Targets={0}, Ping={1}, WSMan={2}, AltCred={3}, AltUser={4}, MaxConcurrent={5}, SaveOutput={6}" -f `
-      $targets.Count, $doPing, $doWsman, $useCred, $altUser, $Script:AppState.MaxConcurrent, ([bool]$Script:AppState.Controls['chkSaveOutput'].IsChecked)) "INFO"
+    Enqueue-UiLog ("Run started. Targets={0}, Ping={1}, WSMan={2}, AltCred={3}, AltUser={4}, MaxConcurrent={5}, Timeout={6}s, SaveOutput={7}" -f `
+      $targets.Count, $doPing, $doWsman, $useCred, $altUser, $Script:AppState.MaxConcurrent, $timeout, ([bool]$Script:AppState.Controls['chkSaveOutput'].IsChecked)) "INFO"
     Enqueue-UiLog "==================================================" "DIVIDER"
 
-    Start-NextQueuedTasks -Custom $custom -DoPing $doPing -DoWsman $doWsman -UseCred $useCred -Cred $cred
+    Start-NextQueuedTasks -Custom $custom -DoPing $doPing -DoWsman $doWsman -UseCred $useCred -Cred $cred -TimeoutSec $timeout
     $Script:AppState.UiTimer.Start()
   }
   catch {
@@ -1313,7 +1342,7 @@ $Script:AppState.Controls['btnCancel'].Add_Click({
     if ($Script:AppState.Controls['dgStatus']) { $Script:AppState.Controls['dgStatus'].Items.Refresh() }
 
     foreach ($j in @($Script:AppState.Jobs)) {
-      try { $j.PS.Stop() } catch {}
+      try { $j.PS.BeginStop($null, $null) } catch {}
     }
 
     $Script:AppState.IsRunning = $false
@@ -1358,8 +1387,8 @@ $Script:AppState.Window.Add_Closing({
     try { $Script:AppState.UiTimer.Stop() } catch {}
     try { $Script:AppState.LogFlushTimer.Stop() } catch {}
 
-    foreach ($j in @($Script:AppState.Jobs)) { try { $j.PS.Dispose() } catch {} }
-    try { $Script:AppState.Pool.Close(); $Script:AppState.Pool.Dispose() } catch {}
+    foreach ($j in @($Script:AppState.Jobs)) { try { $j.PS.BeginStop($null, $null) } catch {} }
+    try { $Script:AppState.Pool.Close() } catch {}
   } catch {}
 })
 #endregion
